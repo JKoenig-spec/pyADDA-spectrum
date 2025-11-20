@@ -18,7 +18,7 @@ Tk().withdraw()
 adda_file = os.path.splitext(askopenfilename(defaultextension='.exe', filetypes=[('Executables', '.exe')], title='Choose path to adda.exe', ))[0]
 adda_folder = os.path.split(adda_file)
 
-#spectrum calculation
+#ADDA command definition
 def adda_spectrum(
     addaFolder = adda_file,
     shape="ellipsoid", #TODO: implement other shapes
@@ -96,6 +96,7 @@ jMin = 400 #minimum wavelength, nm
 jMax = 501 #maximum wavelength, nm
 jStep = 10 #step size of wavelength, nm
 
+#consumer: for csv writing
 def consume():
     while True:
             data = queue.get()
@@ -105,7 +106,7 @@ def consume():
             Cext, Cabs, Csca, cmd = result
             writer.writerow([j, Cext, Cabs, Csca])
             queue.task_done()
-
+#producer: execute adda_spectrum function
 def produce(j):
     wl = j
     nMed = MedMat.get_refractive_index(wl)
@@ -131,3 +132,4 @@ df = pd.read_csv(resultpath)
 df = df.sort_values(by=df.columns[0])
 df.to_csv(resultpath, index=False)
 print(f'Results file saved to {resultpath}')
+
