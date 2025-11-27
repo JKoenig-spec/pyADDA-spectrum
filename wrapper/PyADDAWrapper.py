@@ -18,7 +18,7 @@ Tk().withdraw()
 adda_file = os.path.splitext(askopenfilename(defaultextension='.exe', filetypes=[('Executables', '.exe')], title='Choose path to adda.exe', ))[0]
 adda_folder = os.path.split(adda_file)
 
-#ADDA command definition
+#spectrum calculation
 def adda_spectrum(
     addaFolder = adda_file,
     shape="ellipsoid", #TODO: implement other shapes
@@ -27,20 +27,20 @@ def adda_spectrum(
     nPart=1.5 + 0.2j, #RI of the particles
     euler = (0, 0, 0), #euler angles
     granulRI = 1.4 + 0.1j, #RI of the internal granules
-    nMedium=1.333, #RI of the medium
+    nMedium=1, #RI of the medium
     test=True, #if test, do not run command
     verbose=True, #if verbose, print command
     **kwargs):
 
     if "granul" in kwargs:
-        mCommand = f"-m {np.real(nPart) / nMedium} {np.imag(nPart) / nMedium} {np.real(granulRI)/nMedium} {np.imag(granulRI)/nMedium} "
+        mCommand = f"-m {nPart.real / nMedium} {nPart.imag / nMedium} {granulRI.real/nMedium} {granulRI.imag/nMedium} "
     else:
-        mCommand = f"-m {np.real(nPart) / nMedium} {np.imag(nPart) / nMedium} "
+        mCommand = f"-m {nPart.real / nMedium} {nPart.imag / nMedium} "
 
     cmd = (
         fr"{addaFolder} -shape {shape} " #TODO implement other shapes
-        f"-orient {euler[0]} {euler[1]} {euler[2]} "
-        f"-lambda {wavelength * 1e-3 / nMedium} "
+        #f"-orient {euler[0]} {euler[1]} {euler[2]} "
+        f"-lambda {round(wavelength * 1e-3 / nMedium, 5)} "
         # f"-dpl {dpl} "
         f"-size {2 * round(int(radius) * 1e-3, 5)} "
         f'{mCommand}'
@@ -70,7 +70,7 @@ def adda_spectrum(
     # extract numerical values
     def extract_vals(keyword):
         line = next((l for l in output if keyword in l), "")
-        nums = re.findall(r"[-+]?\d*\.\d+|\d+", line)
+        nums = re.findall(pattern = r"[-+]?\d*\.\d+e[+-]?\d*|\d+", string = line)
         return list(map(float, nums))
 
     Cext = extract_vals("Cext")
@@ -81,7 +81,8 @@ def adda_spectrum(
 
 # Materials and paths
 MedMat = nMat('main', 'H2O', 'Daimon-21.5C')
-PartMat = nMat('main', 'SiO2', 'Arosa')
+#PartMat = nMat('main', 'SiO2', 'Arosa')
+PartMat = nMat('main', 'Ag', 'Ferrera-298K')
 GranulMat = nMat('main', 'Ag', 'Ferrera-298K')
 
 resultpath = fr'{adda_folder[0]}/output.csv'
@@ -92,11 +93,10 @@ writer.writerow(['Wavelength / nm', 'Cext', 'Cabs', 'Csca'])
 #Multithreading
 queue = Queue()
 
-jMin = 400 #minimum wavelength, nm
-jMax = 501 #maximum wavelength, nm
-jStep = 10 #step size of wavelength, nm
+jMin = 300 #minimum wavelength, nm
+jMax = 1000 #maximum wavelength, nm
+jStep = 2 #step size of wavelength, nm
 
-#consumer: for csv writing
 def consume():
     while True:
             data = queue.get()
@@ -106,20 +106,21 @@ def consume():
             Cext, Cabs, Csca, cmd = result
             writer.writerow([j, Cext, Cabs, Csca])
             queue.task_done()
-#producer: execute adda_spectrum function
+
 def produce(j):
     wl = j
     nMed = MedMat.get_refractive_index(wl)
-    nPart = PartMat.get_refractive_index(wl)
+    nPart = complex(PartMat.get_refractive_index(wl), PartMat.get_extinction_coefficient(wl))
     nGranulReal = GranulMat.get_refractive_index(wl)
     nGranulIm = GranulMat.get_extinction_coefficient(wl)
-    result = adda_spectrum(test=False, shape ="sphere", wavelength = wl, radius = 175, nPart = nPart, granulRI= complex(nGranulReal,nGranulIm), nMedium = nMed, verbose = True, granul= '0.10 0.008', asym ='', grid = '125')
+    result = adda_spectrum(test=False, shape ="sphere", wavelength = wl, radius = 4, nPart = nPart, nMedium = 1, verbose = True, grid = '2')
+
     queue.put((j,result))
 
 consumer = Thread(target=consume)
 consumer.start()
 
-with ThreadPoolExecutor(max_workers=4) as executor:
+with ThreadPoolExecutor(max_workers=1) as executor:
     for j in range(jMin, jMax, jStep):
         executor.submit(produce, j)
 
@@ -132,4 +133,3 @@ df = pd.read_csv(resultpath)
 df = df.sort_values(by=df.columns[0])
 df.to_csv(resultpath, index=False)
 print(f'Results file saved to {resultpath}')
-
